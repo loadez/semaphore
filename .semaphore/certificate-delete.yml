@@ -1,5 +1,5 @@
 version: v1.0
-name: Delete Certificate - ${{parameters.CLOUD_TEST_ENV_PREFIX}}
+name: 'Delete Certificate - ${{parameters.CLOUD_TEST_ENV_PREFIX}}'
 agent:
   machine:
     type: f1-standard-2
@@ -11,4 +11,4 @@ blocks:
       jobs:
         - name: Delete Certificate
           commands:
-            - artifact yank project "certs/${CLOUD_TEST_ENV_PREFIX}"
+            - 'artifact yank project "certs/${CLOUD_TEST_ENV_PREFIX}"'

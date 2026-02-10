@@ -9,60 +9,60 @@ blocks:
     task:
       env_vars:
         - name: RAILS_ENV
-          value: "production"
+          value: production
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: REGISTRY_HOST
-          value: "ghcr.io/semaphoreio"
+          value: ghcr.io/semaphoreio
       jobs:
         - name: Build and push images
           matrix:
             - env_var: APPLICATION
               values:
-                - "APIv1alpha"
-                - "APIv2"
-                - "ArtifactHub"
-                - "Audit"
-                - "Auth"
-                - "Badge"
-                - "BranchHub"
-                - "Dashboardhub"
-                - "Encryptor"
-                - "Front"
-                - "GithubNotifier"
-                - "Gofer"
-                - "Guard"
-                - "PublicApiGateway"
-                - "HooksProcessor"
-                - "HooksReceiver"
-                - "Keycloak image"
-                - "Keycloak setup"
-                - "Bootstrapper"
-                - "PeriodicScheduler"
-                - "Loghub2"
-                - "GithubHooks"
-                - "Notifications"
-                - "Plumber"
-                - "PreFlightChecks"
-                - "ProjectHub"
-                - "ProjectHub REST API"
-                - "RBAC CE"
-                - "RBAC EE"
-                - "Repohub"
-                - "RepositoryHub"
-                - "Scouter"
-                - "SecretHub"
-                - "Self Hosted Hub"
-                - "Statsd"
-                - "Velocity"
-                - "Zebra"
+                - APIv1alpha
+                - APIv2
+                - ArtifactHub
+                - Audit
+                - Auth
+                - Badge
+                - BranchHub
+                - Dashboardhub
+                - Encryptor
+                - Front
+                - GithubNotifier
+                - Gofer
+                - Guard
+                - PublicApiGateway
+                - HooksProcessor
+                - HooksReceiver
+                - Keycloak image
+                - Keycloak setup
+                - Bootstrapper
+                - PeriodicScheduler
+                - Loghub2
+                - GithubHooks
+                - Notifications
+                - Plumber
+                - PreFlightChecks
+                - ProjectHub
+                - ProjectHub REST API
+                - RBAC CE
+                - RBAC EE
+                - Repohub
+                - RepositoryHub
+                - Scouter
+                - SecretHub
+                - Self Hosted Hub
+                - Statsd
+                - Velocity
+                - Zebra
           commands:
             - checkout
             - if git rev-parse --is-shallow-repository | grep -q true; then git fetch --unshallow --tags; else git fetch --tags; fi
-            - export APP_NAME=$(jq -r --arg application "$APPLICATION" '.services[$application][]["app"]' .semaphore/services.json)
-            - cd $(jq -r --arg application "$APPLICATION" '.services[$application][]["path"]' .semaphore/services.json)
+            - 'export APP_NAME=$(jq -r --arg application "$APPLICATION" ''.services[$application][]["app"]'' .semaphore/services.json)'
+            - 'cd $(jq -r --arg application "$APPLICATION" ''.services[$application][]["path"]'' .semaphore/services.json)'
             - |
               if docker manifest inspect $(make registry.image); then
                 echo "Image $(make registry.image) already exists - skipping"
@@ -74,8 +74,7 @@ blocks:
             - make registry.configure
             - make registry.push
             - 'if [[ -n $SEMAPHORE_GIT_TAG_NAME ]]; then make registry.sign; fi'
-
-  - name: "Create Helm chart"
+  - name: Create Helm chart
     task:
       jobs:
         - name: Create helm chart artifact
@@ -87,7 +86,6 @@ blocks:
             - export CHART_PATH=$(find . -name *.tgz)
             - artifact push workflow $CHART_PATH --force
             - sem-context put chart_package_name=$(basename $CHART_PATH) --force
-
 promotions:
   - name: Release
     pipeline_file: release.yml
@@ -120,5 +118,4 @@ promotions:
             - ce
             - ee
           default_value: ce
-          description: "The edition of Semaphore to install - Community (ce) or Enterprise (ee)."
-
+          description: The edition of Semaphore to install - Community (ce) or Enterprise (ee).

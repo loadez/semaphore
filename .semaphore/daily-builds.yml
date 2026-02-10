@@ -4,24 +4,24 @@ agent:
   machine:
     type: f1-standard-2
     os_image: ubuntu2404
+auto_cancel:
+  running:
+    when: branch != 'main'
 global_job_config:
   secrets:
     - name: semreg-semaphoredev-credentials
     - name: semaphoreci-dockerhub
   env_vars:
-    # makes buildkit logs more suitable for CI environment
     - name: BUILDKIT_PROGRESS
-      value: "plain"
-    # https://github.com/aquasecurity/trivy/discussions/7668#discussioncomment-10884984
-    # workaround for trivy TOOMANYREQUESTS issues
+      value: plain
     - name: TRIVY_DB_REPOSITORY
-      value: "public.ecr.aws/aquasecurity/trivy-db,aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db"
+      value: 'public.ecr.aws/aquasecurity/trivy-db,aquasec/trivy-db,ghcr.io/aquasecurity/trivy-db'
     - name: TRIVY_JAVA_DB_REPOSITORY
-      value: "public.ecr.aws/aquasecurity/trivy-java-db,aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db"
+      value: 'public.ecr.aws/aquasecurity/trivy-java-db,aquasec/trivy-java-db,ghcr.io/aquasecurity/trivy-java-db'
   prologue:
     commands:
-      - echo $DOCKER_PASSWORD | docker login --username "$DOCKER_USERNAME" --password-stdin || echo "Docker login failed, but continuing the build process." && true
-      - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST || echo "Semaphore Registry login failed, but continuing the build process." && true
+      - 'echo $DOCKER_PASSWORD | docker login --username "$DOCKER_USERNAME" --password-stdin || echo "Docker login failed, but continuing the build process." && true'
+      - 'echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST || echo "Semaphore Registry login failed, but continuing the build process." && true'
       - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
       - sem-version ruby 3.3
       - checkout
@@ -36,156 +36,141 @@ global_job_config:
         - 'if [ -f out/dependency-scan-trivy.json ]; then CHECK_TYPE=deps make check.generate-report; fi'
         - 'if [ -f out/security-export.json ]; then artifact push workflow out/security-export.json -d scans/$SEMAPHORE_JOB_ID.json; fi'
         - 'if [ -f out/security-summary.md ]; then artifact push job out/security-summary.md -d .semaphore/REPORT.md; fi'
-after_pipeline:
-  task:
-    jobs:
-      - name: Submit Reports
-        commands:
-          - test-results gen-pipeline-report
-      - name: Process Reports
-        commands:
-          - sem-version ruby 3.3
-          - checkout
-          - artifact pull workflow scans -d reports || echo "No scan reports found, skipping."
-          - mkdir -p out
-          - make check.generate-global-report
-          - 'if [ -f out/global-security-summary.md ]; then artifact push workflow out/global-security-summary.md -d .semaphore/REPORT.md; fi'
-auto_cancel:
-  running:
-    when: "branch != 'main'"
 blocks:
-  # Audit
-  - name: "Audit: Provision Test Image"
+  - name: 'Audit: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd ee/audit
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Audit: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd ee/audit
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Audit: Deployment Preconditions"
-    dependencies: ["Audit: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "Audit"
-      prologue:
-        commands:
-          - checkout && cd ee/audit
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Audit: QA"
-    dependencies: ["Audit: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd ee/audit
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Audit: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd ee/audit
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Audit: Deployment Preconditions'
+    dependencies:
+      - 'Audit: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: Audit
+      prologue:
+        commands:
+          - checkout && cd ee/audit
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Audit: QA'
+    dependencies:
+      - 'Audit: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd ee/audit
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Audit Tests"
             - make test.ex
           parallelism: 2
-  # Artifacthub
-  - name: "ArtifactHub: Provision Prod Image"
+  - name: 'ArtifactHub: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd artifacthub
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "ArtifactHub: Deployment Preconditions"
-    dependencies: ["ArtifactHub: Provision Prod Image"]
+  - name: 'ArtifactHub: Deployment Preconditions'
+    dependencies:
+      - 'ArtifactHub: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "ArtifactHub"
+          value: ArtifactHub
       prologue:
         commands:
           - checkout && cd artifacthub
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated" --ignores G115'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "ArtifactHub: QA"
-    dependencies: ["ArtifactHub: Provision Prod Image"]
+  - name: 'ArtifactHub: QA'
+    dependencies:
+      - 'ArtifactHub: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -193,313 +178,316 @@ blocks:
           - checkout && cd artifacthub
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test.setup
             - make test
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # Auth
-  - name: "Auth: Provision Test Image"
+  - name: 'Auth: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd auth
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Auth: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd auth
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Auth: Deployment Preconditions"
-    dependencies: ["Auth: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "Auth"
-      prologue:
-        commands:
-          - checkout && cd auth
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Auth: QA"
-    dependencies: ["Auth: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd auth
-          - cache restore auth-$(checksum mix.lock),auth-$SEMAPHORE_GIT_BRANCH,auth
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Auth: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd auth
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Auth: Deployment Preconditions'
+    dependencies:
+      - 'Auth: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: Auth
+      prologue:
+        commands:
+          - checkout && cd auth
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Auth: QA'
+    dependencies:
+      - 'Auth: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd auth
+          - 'cache restore auth-$(checksum mix.lock),auth-$SEMAPHORE_GIT_BRANCH,auth'
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # Badge
-  - name: "Badge: Provision Test Image"
+  - name: 'Badge: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd badge
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Badge: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd badge
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Badge: Deployment Preconditions"
-    dependencies: ["Badge: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "Badge"
-      prologue:
-        commands:
-          - checkout && cd badge
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Badge: QA"
-    dependencies: ["Badge: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd badge
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Badge: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd badge
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Badge: Deployment Preconditions'
+    dependencies:
+      - 'Badge: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: Badge
+      prologue:
+        commands:
+          - checkout && cd badge
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Badge: QA'
+    dependencies:
+      - 'Badge: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd badge
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Badge Tests"
             - make test.ex
           parallelism: 2
-  # Branch-hub
-  - name: "BranchHub: Provision Test Image"
+  - name: 'BranchHub: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd branch_hub
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "BranchHub: Provision Prod Image"
+  - name: 'BranchHub: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd branch_hub
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "BranchHub: Deployment Preconditions"
-    dependencies: ["BranchHub: Provision Prod Image"]
+  - name: 'BranchHub: Deployment Preconditions'
+    dependencies:
+      - 'BranchHub: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "BranchHub"
+          value: BranchHub
       prologue:
         commands:
           - checkout && cd branch_hub
           - sem-version ruby 3.0
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code CHECK_CODE_OPTS='--ignores Config.HTTPS'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "BranchHub: QA"
-    dependencies: ["BranchHub: Provision Test Image"]
+  - name: 'BranchHub: QA'
+    dependencies:
+      - 'BranchHub: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd branch_hub
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # Dashboardhub
-  - name: "Dashboardhub: Provision Test Image"
+  - name: 'Dashboardhub: Provision Test Image'
     dependencies: []
     task:
       secrets:
         - name: semreg-semaphoredev-credentials
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd dashboardhub
           - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
           - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "Dashboardhub: Provision Prod Image"
+  - name: 'Dashboardhub: Provision Prod Image'
     dependencies: []
     task:
       secrets:
         - name: semreg-semaphoredev-credentials
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd dashboardhub
           - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
           - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make build
             - make push
-  - name: "Dashboardhub: Deployment Preconditions"
-    dependencies: ["Dashboardhub: Provision Prod Image"]
+  - name: 'Dashboardhub: Deployment Preconditions'
+    dependencies:
+      - 'Dashboardhub: Provision Prod Image'
     task:
       secrets:
         - name: semreg-semaphoredev-credentials
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "DashboardHub"
+          value: DashboardHub
       prologue:
         commands:
           - checkout && cd dashboardhub
@@ -509,18 +497,19 @@ blocks:
           - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Dashboardhub: QA"
-    dependencies: ["Dashboardhub: Provision Test Image"]
+  - name: 'Dashboardhub: QA'
+    dependencies:
+      - 'Dashboardhub: Provision Test Image'
     task:
       secrets:
         - name: semreg-semaphoredev-credentials
@@ -528,7 +517,7 @@ blocks:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd dashboardhub
@@ -536,44 +525,44 @@ blocks:
           - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
           - make pull
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # Docs
-  - name: "Docs: Provision Prod Image"
+  - name: 'Docs: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: APP_ENV
           value: prod
       jobs:
-        - name: "Image Build"
+        - name: Image Build
           commands:
             - checkout
             - cd docs
             - make build
             - make push
-  - name: "Docs: Build test image"
+  - name: 'Docs: Build test image'
     dependencies: []
     task:
       env_vars:
         - name: APP_ENV
           value: dev
       jobs:
-        - name: "Image Build"
+        - name: Image Build
           commands:
             - checkout
             - cd docs
             - make build
             - make push
-  - name: "Docs: QA"
-    dependencies: ["Docs: Build test image"]
+  - name: 'Docs: QA'
+    dependencies:
+      - 'Docs: Build test image'
     task:
       env_vars:
         - name: APP_ENV
@@ -591,8 +580,7 @@ blocks:
         - name: Test
           commands:
             - make test
-  # Front
-  - name: "Front: Provision Test Image"
+  - name: 'Front: Provision Test Image'
     dependencies: []
     task:
       agent:
@@ -615,9 +603,9 @@ blocks:
           commands:
             - make build
             - make push
-  - name: "Front: QA"
+  - name: 'Front: QA'
     dependencies:
-      - "Front: Provision Test Image"
+      - 'Front: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
@@ -634,7 +622,7 @@ blocks:
       jobs:
         - name: Elixir Tests
           commands:
-            - make test.ex TEST_FLAGS='--exclude browser:true --exclude comunity_edition:true'
+            - 'make test.ex TEST_FLAGS=''--exclude browser:true --exclude comunity_edition:true'''
         - name: Javascript Tests
           commands:
             - make test.js
@@ -642,9 +630,9 @@ blocks:
           commands:
             - make test.ex TEST_FILE='test/browser/**/*.exs test/browser/*.exs'
           parallelism: 5
-  - name: "Front: Deployment Preconditions"
+  - name: 'Front: Deployment Preconditions'
     dependencies:
-      - "Front: Provision Test Image"
+      - 'Front: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
@@ -682,7 +670,7 @@ blocks:
             - bash linters/deprecated_factories.sh
             - bash linters/fun_registry.sh
             - bash linters/todos_count.sh
-  - name: "Front: Provision Prod Image"
+  - name: 'Front: Provision Prod Image'
     dependencies: []
     task:
       agent:
@@ -705,9 +693,9 @@ blocks:
           commands:
             - make build
             - make push
-  - name: "Front: Security checks"
+  - name: 'Front: Security checks'
     dependencies:
-      - "Front: Provision Prod Image"
+      - 'Front: Provision Prod Image'
     task:
       secrets:
         - name: semreg-semaphoredev-credentials
@@ -721,306 +709,309 @@ blocks:
         - name: MIX_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Front"
+          value: Front
       jobs:
         - name: JS - dependencies
           commands:
             - make check.js.deps APP_DIRECTORY=assets SCAN_RESULT_DIR=../out
         - name: JS - code
           commands:
-            - export PATH=$PATH:/home/semaphore/.local/bin
+            - 'export PATH=$PATH:/home/semaphore/.local/bin'
             - make check.js.code APP_DIRECTORY=assets SCAN_RESULT_DIR=../out
         - name: Elixir - dependencies
           commands:
             - make check.ex.deps CHECK_DEPS_OPTS='--ignore-packages phoenix'
         - name: Elixir - code
           commands:
-            - make check.ex.code CHECK_CODE_OPTS='--ignores Config.HTTPS,Config.CSP'
+            - 'make check.ex.code CHECK_CODE_OPTS=''--ignores Config.HTTPS,Config.CSP'''
         - name: Docker resources
           commands:
             - make build
             - make check.docker CHECK_DOCKER_OPTS='--ignore-policy security-ignore-policy.rego'
-  # Guard
-  - name: "Guard: Provision Test Image"
+  - name: 'Guard: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd guard
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "Guard: Provision Prod Image"
+  - name: 'Guard: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd guard
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Guard: Deployment Preconditions"
-    dependencies: ["Guard: Provision Prod Image"]
+  - name: 'Guard: Deployment Preconditions'
+    dependencies:
+      - 'Guard: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "Guard"
+          value: Guard
       prologue:
         commands:
           - checkout && cd guard
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Guard: QA"
-    dependencies: ["Guard: Provision Test Image"]
+  - name: 'Guard: QA'
+    dependencies:
+      - 'Guard: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd guard
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Guard Tests"
             - make test.ex
           parallelism: 2
-  # HooksReceiver
-  - name: "HooksReceiver: Provision Test Image"
+  - name: 'HooksReceiver: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd hooks_receiver
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "HooksReceiver: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd hooks_receiver
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make build
-            - make push
-  - name: "HooksReceiver: Deployment Preconditions"
-    dependencies: ["HooksReceiver: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "HooksReceiver"
-      prologue:
-        commands:
-          - checkout && cd hooks_receiver
-          - make pull
-      jobs:
-        - name: "HooksReceiver Check code"
-          commands:
-            - make check.ex.code
-        - name: "HooksReceiver Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "HooksReceiver Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "HooksReceiver: QA"
-    dependencies: ["HooksReceiver: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd hooks_receiver
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'HooksReceiver: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd hooks_receiver
+      jobs:
+        - name: Build prod image
+          commands:
+            - make build
+            - make push
+  - name: 'HooksReceiver: Deployment Preconditions'
+    dependencies:
+      - 'HooksReceiver: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: HooksReceiver
+      prologue:
+        commands:
+          - checkout && cd hooks_receiver
+          - make pull
+      jobs:
+        - name: HooksReceiver Check code
+          commands:
+            - make check.ex.code
+        - name: HooksReceiver Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: HooksReceiver Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'HooksReceiver: QA'
+    dependencies:
+      - 'HooksReceiver: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd hooks_receiver
           - make build
       jobs:
-        - name: "HooksReceiver Lint"
+        - name: HooksReceiver Lint
           commands:
             - make format.ex
-        - name: "HooksReceiver Credo"
+        - name: HooksReceiver Credo
           commands:
             - make lint.ex
-        - name: "HooksReceiver Test"
+        - name: HooksReceiver Test
           commands:
             - export TEST_RESULTS_NAME="HooksReceiver Tests"
             - make test.ex
-  # HooksProcessor
-  - name: "HooksProcessor Provision Test Image"
+  - name: HooksProcessor Provision Test Image
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd hooks_processor
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "HooksProcessor Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd hooks_processor
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make build
-            - make push
-  - name: "HooksProcessor Deployment Preconditions"
-    dependencies: ["HooksProcessor Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "HooksProcessor"
-      prologue:
-        commands:
-          - checkout && cd hooks_processor
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "HooksProcessor: QA"
-    dependencies: ["HooksProcessor Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd hooks_processor
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: HooksProcessor Provision Prod Image
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd hooks_processor
+      jobs:
+        - name: Build prod image
+          commands:
+            - make build
+            - make push
+  - name: HooksProcessor Deployment Preconditions
+    dependencies:
+      - HooksProcessor Provision Prod Image
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: HooksProcessor
+      prologue:
+        commands:
+          - checkout && cd hooks_processor
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'HooksProcessor: QA'
+    dependencies:
+      - HooksProcessor Provision Test Image
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd hooks_processor
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="HooksProcessor Tests"
             - make test.ex
           parallelism: 2
-  # Gofer
-  - name: "Gofer: Provision Prod Image"
+  - name: 'Gofer: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd ee/gofer
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make build
             - make push
-  - name: "Gofer: Provision Test Image"
+  - name: 'Gofer: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd ee/gofer
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "Gofer: Deployment Preconditions"
-    dependencies: ["Gofer: Provision Prod Image"]
+  - name: 'Gofer: Deployment Preconditions'
+    dependencies:
+      - 'Gofer: Provision Prod Image'
     task:
       prologue:
         commands:
@@ -1028,961 +1019,942 @@ blocks:
           - sem-version ruby 2.7
           - make pull
       jobs:
-        - name: "Scan dependencies"
+        - name: Scan dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker security"
+        - name: Check docker security
           commands:
             - make build
             - make check.docker
-        - name: "Static code analysis"
+        - name: Static code analysis
           commands:
             - make check.ex.code
-  - name: "Gofer: Tests"
-    dependencies: ["Gofer: Provision Test Image"]
+  - name: 'Gofer: Tests'
+    dependencies:
+      - 'Gofer: Provision Test Image'
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "Gofer"
+          value: Gofer
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd ee/gofer
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Gofer Tests"
             - make test.ex
           parallelism: 2
-  # GithubNotifier
-  - name: "GithubNotifier: Provision Test Image"
+  - name: 'GithubNotifier: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd github_notifier
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "GithubNotifier: Provision Prod Image"
+  - name: 'GithubNotifier: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd github_notifier
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "GithubNotifier: Deployment Preconditions"
-    dependencies: ["GithubNotifier: Provision Prod Image"]
+  - name: 'GithubNotifier: Deployment Preconditions'
+    dependencies:
+      - 'GithubNotifier: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "GithubNotifier"
+          value: GithubNotifier
       prologue:
         commands:
           - checkout && cd github_notifier
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "GithubNotifier: QA"
-    dependencies: ["GithubNotifier: Provision Test Image"]
+  - name: 'GithubNotifier: QA'
+    dependencies:
+      - 'GithubNotifier: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd github_notifier
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="GithubNotifier Tests"
             - make test.ex
-  # Plumber
-  - name: "Looper: Provision Test Image"
+  - name: 'Looper: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd plumber/looper
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Looper: Deployment Preconditions"
-    dependencies: []
-    task:
-      env_vars:
-        - name: SERVICE_NAME
-          value: "Looper"
-      prologue:
-        commands:
-          - checkout && cd plumber/looper
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-  - name: "Looper: QA"
-    dependencies: ["Looper: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd plumber/looper
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Looper: Deployment Preconditions'
+    dependencies: []
+    task:
+      env_vars:
+        - name: SERVICE_NAME
+          value: Looper
+      prologue:
+        commands:
+          - checkout && cd plumber/looper
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+  - name: 'Looper: QA'
+    dependencies:
+      - 'Looper: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/looper
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Looper Tests"
             - make test.ex
           parallelism: 2
-  - name: "JobMatrix: Provision Test Image"
+  - name: 'JobMatrix: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd plumber/job_matrix
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "JobMatrix: Deployment Preconditions"
-    dependencies: []
-    task:
-      env_vars:
-        - name: SERVICE_NAME
-          value: "JobMatrix"
-      prologue:
-        commands:
-          - checkout && cd plumber/job_matrix
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-  - name: "JobMatrix: QA"
-    dependencies: ["JobMatrix: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd plumber/job_matrix
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'JobMatrix: Deployment Preconditions'
+    dependencies: []
+    task:
+      env_vars:
+        - name: SERVICE_NAME
+          value: JobMatrix
+      prologue:
+        commands:
+          - checkout && cd plumber/job_matrix
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+  - name: 'JobMatrix: QA'
+    dependencies:
+      - 'JobMatrix: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/job_matrix
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        #- name: "Credo"
-        #  commands:
-        #    - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="JobMatrix Tests"
             - make test.ex
           parallelism: 2
-  - name: "DefinitionValidator: Provision Test Image"
+  - name: 'DefinitionValidator: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd plumber/definition_validator
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "DefinitionValidator: Deployment Preconditions"
-    dependencies: []
-    task:
-      env_vars:
-        - name: SERVICE_NAME
-          value: "DefinitionValidator"
-      prologue:
-        commands:
-          - checkout && cd plumber/definition_validator
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-  - name: "DefinitionValidator: QA"
-    dependencies: ["DefinitionValidator: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd plumber/definition_validator
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'DefinitionValidator: Deployment Preconditions'
+    dependencies: []
+    task:
+      env_vars:
+        - name: SERVICE_NAME
+          value: DefinitionValidator
+      prologue:
+        commands:
+          - checkout && cd plumber/definition_validator
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+  - name: 'DefinitionValidator: QA'
+    dependencies:
+      - 'DefinitionValidator: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/definition_validator
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        #- name: "Credo"
-        #  commands:
-        #    - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="DefinitionValidator Tests"
             - make test.ex
-  - name: "TaskApiMock: Provision Test Image"
+  - name: 'TaskApiMock: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/task_api_referent
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "TaskApiMock: Provision Prod Image"
+  - name: 'TaskApiMock: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/task_api_referent
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make build
             - make push
-  - name: "TaskApiMock: Deployment Preconditions"
-    dependencies: ["TaskApiMock: Provision Prod Image"]
+  - name: 'TaskApiMock: Deployment Preconditions'
+    dependencies:
+      - 'TaskApiMock: Provision Prod Image'
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "TaskApiMock"
+          value: TaskApiMock
       prologue:
         commands:
           - checkout && cd plumber/task_api_referent
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "TaskApiMock: QA"
-    dependencies: ["TaskApiMock: Provision Test Image"]
+  - name: 'TaskApiMock: QA'
+    dependencies:
+      - 'TaskApiMock: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/task_api_referent
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        #- name: "Credo"
-        #  commands:
-        #    - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="TaskApiMock Tests"
             - make test.ex
-  - name: "Spec: Provision Test Image"
+  - name: 'Spec: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd plumber/spec
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Spec: Deployment Preconditions"
-    dependencies: []
-    task:
-      env_vars:
-        - name: SERVICE_NAME
-          value: "Spec"
-      prologue:
-        commands:
-          - checkout && cd plumber/spec
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-  - name: "Spec: QA"
-    dependencies: ["Spec: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd plumber/spec
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Spec: Deployment Preconditions'
+    dependencies: []
+    task:
+      env_vars:
+        - name: SERVICE_NAME
+          value: Spec
+      prologue:
+        commands:
+          - checkout && cd plumber/spec
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+  - name: 'Spec: QA'
+    dependencies:
+      - 'Spec: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/spec
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        #- name: "Credo"
-        #  commands:
-        #    - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Spec Tests"
             - make test.ex
-  - name: "GoferClient: Provision Test Image"
+  - name: 'GoferClient: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd plumber/gofer_client
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "GoferClient: Deployment Preconditions"
-    dependencies: []
-    task:
-      env_vars:
-        - name: SERVICE_NAME
-          value: "GoferClient"
-      prologue:
-        commands:
-          - checkout && cd plumber/gofer_client
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-  - name: "GoferClient: QA"
-    dependencies: ["GoferClient: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd plumber/gofer_client
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'GoferClient: Deployment Preconditions'
+    dependencies: []
+    task:
+      env_vars:
+        - name: SERVICE_NAME
+          value: GoferClient
+      prologue:
+        commands:
+          - checkout && cd plumber/gofer_client
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+  - name: 'GoferClient: QA'
+    dependencies:
+      - 'GoferClient: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/gofer_client
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        #- name: "Credo"
-        #  commands:
-        #    - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="GoferClient Tests"
             - make test.ex
-  - name: "Blocks: Provision Test Image"
+  - name: 'Blocks: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "Blocks"
+          value: Blocks
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/block
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "Blocks: Deployment Preconditions"
+  - name: 'Blocks: Deployment Preconditions'
     dependencies: []
     task:
       prologue:
         commands:
           - checkout && cd plumber/block
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-  - name: "Blocks: QA"
-    dependencies: ["Blocks: Provision Test Image"]
+  - name: 'Blocks: QA'
+    dependencies:
+      - 'Blocks: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/block
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Plumber Tests"
             - make test.ex
           parallelism: 2
-  - name: "Blocks: Integration QA"
-    dependencies: ["Blocks: Provision Test Image", "TaskApiMock: Provision Prod Image"]
+  - name: 'Blocks: Integration QA'
+    dependencies:
+      - 'Blocks: Provision Test Image'
+      - 'TaskApiMock: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/block
           - make build
       jobs:
-        - name: "Integration Test"
+        - name: Integration Test
           commands:
             - export TEST_RESULTS_NAME="Blocks Integration Tests"
             - make task_api.run
             - TEST_FLAGS="--only integration" make test.ex
           parallelism: 2
-  - name: "RepoProxyRef: Provision Prod Image"
+  - name: 'RepoProxyRef: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/repo_proxy_ref
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make build
             - make push
-  - name: "Ppl: Provision Test Image"
+  - name: 'Ppl: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "Ppl"
+          value: Ppl
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/ppl
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "Ppl: Provision Prod Image"
+  - name: 'Ppl: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/ppl
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make build
             - make push
-  - name: "Ppl: Deployment Preconditions"
-    dependencies: ["Ppl: Provision Prod Image"]
+  - name: 'Ppl: Deployment Preconditions'
+    dependencies:
+      - 'Ppl: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/ppl
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Ppl: QA"
-    dependencies: ["Ppl: Provision Test Image"]
+  - name: 'Ppl: QA'
+    dependencies:
+      - 'Ppl: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/ppl
           - make build
       jobs:
-        #- name: "Lint"
-        #  commands:
-        #    - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Plumber Tests"
             - make test.ex
           parallelism: 2
-  - name: "Ppl: Integration QA"
-    dependencies: ["Ppl: Provision Test Image", "RepoProxyRef: Provision Prod Image", "TaskApiMock: Provision Prod Image"]
+  - name: 'Ppl: Integration QA'
+    dependencies:
+      - 'Ppl: Provision Test Image'
+      - 'RepoProxyRef: Provision Prod Image'
+      - 'TaskApiMock: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd plumber/ppl
           - make build
       jobs:
-        - name: "Integration Test"
+        - name: Integration Test
           commands:
             - export TEST_RESULTS_NAME="Plumber Integration Tests"
             - make repo_proxy.run
             - make task_api.run
             - TEST_FLAGS="--only integration" make test.ex
           parallelism: 4
-  # Pre-flight Checks
-  - name: "Pre-flight Checks: Provision Test Image"
+  - name: 'Pre-flight Checks: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd ee/pre_flight_checks
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Pre-flight Checks: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd ee/pre_flight_checks
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Pre-flight Checks: Deployment Preconditions"
-    dependencies: ["Pre-flight Checks: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "PreFlightChecks"
-      prologue:
-        commands:
-          - checkout && cd ee/pre_flight_checks
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Pre-flight Checks: QA"
-    dependencies: ["Pre-flight Checks: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd ee/pre_flight_checks
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Pre-flight Checks: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd ee/pre_flight_checks
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Pre-flight Checks: Deployment Preconditions'
+    dependencies:
+      - 'Pre-flight Checks: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: PreFlightChecks
+      prologue:
+        commands:
+          - checkout && cd ee/pre_flight_checks
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Pre-flight Checks: QA'
+    dependencies:
+      - 'Pre-flight Checks: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd ee/pre_flight_checks
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Pre-flight Checks Tests"
             - make test.ex
           parallelism: 2
-  # Projecthub
-  - name: "ProjectHub: Provision Test Image"
+  - name: 'ProjectHub: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd projecthub
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "ProjectHub: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd projecthub
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "ProjectHub: Deployment Preconditions"
-    dependencies: ["ProjectHub: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "ProjectHub"
-      prologue:
-        commands:
-          - checkout && cd projecthub
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "ProjectHub: QA"
-    dependencies: ["ProjectHub: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd projecthub
-          - make build
       jobs:
-        - name: "Lint"
-          commands:
-            - make format.ex
-        - name: "Credo"
-          commands:
-            - make lint.ex
-        - name: "Test"
-          commands:
-            - make test.ex
-  # Projecthub-rest-api
-  - name: "ProjectHub REST API: Provision Test Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd projecthub-rest-api
-      jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "ProjectHub REST API: Provision Prod Image"
+  - name: 'ProjectHub: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
-          - checkout && cd projecthub-rest-api
+          - checkout && cd projecthub
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "ProjectHub REST API: Deployment Preconditions"
-    dependencies: ["ProjectHub REST API: Provision Prod Image"]
+  - name: 'ProjectHub: Deployment Preconditions'
+    dependencies:
+      - 'ProjectHub: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "ProjectHub REST API"
+          value: ProjectHub
       prologue:
         commands:
-          - checkout && cd projecthub-rest-api
+          - checkout && cd projecthub
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "ProjectHub REST API: QA"
-    dependencies: ["ProjectHub REST API: Provision Test Image"]
+  - name: 'ProjectHub: QA'
+    dependencies:
+      - 'ProjectHub: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd projecthub
+          - make build
+      jobs:
+        - name: Lint
+          commands:
+            - make format.ex
+        - name: Credo
+          commands:
+            - make lint.ex
+        - name: Test
+          commands:
+            - make test.ex
+  - name: 'ProjectHub REST API: Provision Test Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd projecthub-rest-api
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'ProjectHub REST API: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd projecthub-rest-api
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'ProjectHub REST API: Deployment Preconditions'
+    dependencies:
+      - 'ProjectHub REST API: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: ProjectHub REST API
+      prologue:
+        commands:
+          - checkout && cd projecthub-rest-api
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'ProjectHub REST API: QA'
+    dependencies:
+      - 'ProjectHub REST API: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd projecthub-rest-api
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # Public-api-gateway
-  - name: "public-api-gateway: Provision Prod Image"
+  - name: 'public-api-gateway: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd public-api-gateway
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "public-api-gateway: Deployment Preconditions"
-    dependencies: ["public-api-gateway: Provision Prod Image"]
+  - name: 'public-api-gateway: Deployment Preconditions'
+    dependencies:
+      - 'public-api-gateway: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "public-api-gateway"
+          value: public-api-gateway
       prologue:
         commands:
           - checkout && cd public-api-gateway
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated"'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "public-api-gateway: QA"
-    dependencies: ["public-api-gateway: Provision Prod Image"]
+  - name: 'public-api-gateway: QA'
+    dependencies:
+      - 'public-api-gateway: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -1990,66 +1962,67 @@ blocks:
           - checkout && cd public-api-gateway
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test
-        - name: "E2E Test"
+        - name: E2E Test
           commands:
             - make test.e2e
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # Repohub
-  - name: "Repohub: Provision Prod Image"
+  - name: 'Repohub: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd repohub
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Repohub: Deployment Preconditions"
-    dependencies: ["Repohub: Provision Prod Image"]
+  - name: 'Repohub: Deployment Preconditions'
+    dependencies:
+      - 'Repohub: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Repohub"
+          value: Repohub
       prologue:
         commands:
           - checkout && cd repohub
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated"'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Repohub: QA"
-    dependencies: ["Repohub: Provision Prod Image"]
+  - name: 'Repohub: QA'
+    dependencies:
+      - 'Repohub: Provision Prod Image'
     task:
       secrets:
         - name: repohub-integration
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -2057,254 +2030,183 @@ blocks:
           - checkout && cd repohub
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test.setup
             - make test.go
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # RBAC CE
-  - name: "RBAC CE: Provision Test Image"
+  - name: 'RBAC CE: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd rbac/ce
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "RBAC CE: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd rbac/ce
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "RBAC CE: Deployment Preconditions"
-    dependencies: ["RBAC CE: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "RBAC CE"
-      prologue:
-        commands:
-          - checkout && cd rbac/ce
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "RBAC CE: QA"
-    dependencies: ["RBAC CE: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd rbac/ce
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'RBAC CE: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd rbac/ce
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'RBAC CE: Deployment Preconditions'
+    dependencies:
+      - 'RBAC CE: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: RBAC CE
+      prologue:
+        commands:
+          - checkout && cd rbac/ce
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'RBAC CE: QA'
+    dependencies:
+      - 'RBAC CE: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd rbac/ce
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="RBAC CE Tests"
             - make test.ex
           parallelism: 2
-  # RBAC EE
-  - name: "RBAC EE: Provision Test Image"
+  - name: 'RBAC EE: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd ee/rbac
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "RBAC EE: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd ee/rbac
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "RBAC EE: Deployment Preconditions"
-    dependencies: ["RBAC EE: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "RBAC EE"
-      prologue:
-        commands:
-          - checkout && cd ee/rbac
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "RBAC EE: QA"
-    dependencies: ["RBAC EE: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd ee/rbac
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'RBAC EE: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd ee/rbac
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'RBAC EE: Deployment Preconditions'
+    dependencies:
+      - 'RBAC EE: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: RBAC EE
+      prologue:
+        commands:
+          - checkout && cd ee/rbac
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'RBAC EE: QA'
+    dependencies:
+      - 'RBAC EE: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd ee/rbac
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="RBAC EE Tests"
             - make test.ex
           parallelism: 2
-  # RepositoryHub
-  - name: "RepositoryHub Provision Test Image"
+  - name: RepositoryHub Provision Test Image
     dependencies: []
-    task:
-      secrets:
-        - name: semreg-semaphoredev-credentials
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd repository_hub
-          - '[ -d $SEMAPHORE_GIT_DIR ] && sudo chown -R $(id -u ${USER}):$(id -g ${USER}) $SEMAPHORE_GIT_DIR || echo "$SEMAPHORE_GIT_DIR not present"'
-          - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
-          - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "RepositoryHub Provision Prod Image"
-    dependencies: []
-    task:
-      secrets:
-        - name: semreg-semaphoredev-credentials
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd repository_hub
-          - '[ -d $SEMAPHORE_GIT_DIR ] && sudo chown -R $(id -u ${USER}):$(id -g ${USER}) $SEMAPHORE_GIT_DIR || echo "$SEMAPHORE_GIT_DIR not present"'
-          - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
-          - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "RepositoryHub Deployment Preconditions"
-    dependencies: ["RepositoryHub Provision Prod Image"]
-    task:
-      secrets:
-        - name: semreg-semaphoredev-credentials
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "RepositoryHub"
-      prologue:
-        commands:
-          - checkout && cd repository_hub
-          - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
-          - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "RepositoryHub: QA"
-    dependencies: ["RepositoryHub Provision Test Image"]
     task:
       secrets:
         - name: semreg-semaphoredev-credentials
@@ -2312,7 +2214,53 @@ blocks:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd repository_hub
+          - '[ -d $SEMAPHORE_GIT_DIR ] && sudo chown -R $(id -u ${USER}):$(id -g ${USER}) $SEMAPHORE_GIT_DIR || echo "$SEMAPHORE_GIT_DIR not present"'
+          - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
+          - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: RepositoryHub Provision Prod Image
+    dependencies: []
+    task:
+      secrets:
+        - name: semreg-semaphoredev-credentials
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd repository_hub
+          - '[ -d $SEMAPHORE_GIT_DIR ] && sudo chown -R $(id -u ${USER}):$(id -g ${USER}) $SEMAPHORE_GIT_DIR || echo "$SEMAPHORE_GIT_DIR not present"'
+          - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
+          - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: RepositoryHub Deployment Preconditions
+    dependencies:
+      - RepositoryHub Provision Prod Image
+    task:
+      secrets:
+        - name: semreg-semaphoredev-credentials
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: RepositoryHub
       prologue:
         commands:
           - checkout && cd repository_hub
@@ -2320,64 +2268,93 @@ blocks:
           - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
           - make pull
       jobs:
-        - name: "Lint"
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'RepositoryHub: QA'
+    dependencies:
+      - RepositoryHub Provision Test Image
+    task:
+      secrets:
+        - name: semreg-semaphoredev-credentials
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd repository_hub
+          - echo $SEMAPHORE_REGISTRY_PASSWORD | docker login --username "$SEMAPHORE_REGISTRY_USERNAME" --password-stdin $SEMAPHORE_REGISTRY_HOST
+          - export REGISTRY_HOST=$SEMAPHORE_REGISTRY_HOST
+          - make pull
+      jobs:
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # Loghub2
-  - name: "Loghub2: Provision Prod Image"
+  - name: 'Loghub2: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd loghub2
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Loghub2: Deployment Preconditions"
-    dependencies: ["Loghub2: Provision Prod Image"]
+  - name: 'Loghub2: Deployment Preconditions'
+    dependencies:
+      - 'Loghub2: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Loghub2"
+          value: Loghub2
       prologue:
         commands:
           - checkout && cd loghub2
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated"'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Loghub2: QA"
-    dependencies: ["Loghub2: Provision Prod Image"]
+  - name: 'Loghub2: QA'
+    dependencies:
+      - 'Loghub2: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -2385,62 +2362,63 @@ blocks:
           - checkout && cd loghub2
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test.setup
             - make test
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # Encryptor
-  - name: "Encryptor: Provision Prod Image"
+  - name: 'Encryptor: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd encryptor
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Encryptor: Deployment Preconditions"
-    dependencies: ["Encryptor: Provision Prod Image"]
+  - name: 'Encryptor: Deployment Preconditions'
+    dependencies:
+      - 'Encryptor: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Encryptor"
+          value: Encryptor
       prologue:
         commands:
           - checkout && cd encryptor
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Encryptor: QA"
-    dependencies: ["Encryptor: Provision Prod Image"]
+  - name: 'Encryptor: QA'
+    dependencies:
+      - 'Encryptor: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -2448,62 +2426,63 @@ blocks:
           - checkout && cd encryptor
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test.setup
             - make test
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # Bootstrapper
-  - name: "Bootstrapper: Provision Prod Image"
+  - name: 'Bootstrapper: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd bootstrapper
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Bootstrapper: Deployment Preconditions"
-    dependencies: ["Bootstrapper: Provision Prod Image"]
+  - name: 'Bootstrapper: Deployment Preconditions'
+    dependencies:
+      - 'Bootstrapper: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Bootstrapper"
+          value: Bootstrapper
       prologue:
         commands:
           - checkout && cd bootstrapper
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated"'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Bootstrapper: QA"
-    dependencies: ["Bootstrapper: Provision Prod Image"]
+  - name: 'Bootstrapper: QA'
+    dependencies:
+      - 'Bootstrapper: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -2511,61 +2490,62 @@ blocks:
           - checkout && cd bootstrapper
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # Self Hosted Hub
-  - name: "Self-Hosted-Hub: Provision Prod Image"
+  - name: 'Self-Hosted-Hub: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd self_hosted_hub
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Self-Hosted-Hub: Deployment Preconditions"
-    dependencies: ["Self-Hosted-Hub: Provision Prod Image"]
+  - name: 'Self-Hosted-Hub: Deployment Preconditions'
+    dependencies:
+      - 'Self-Hosted-Hub: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Self-Hosted-Hub"
+          value: Self-Hosted-Hub
       prologue:
         commands:
           - checkout && cd self_hosted_hub
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated" --ignores G115'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Self-Hosted-Hub: QA"
-    dependencies: ["Self-Hosted-Hub: Provision Prod Image"]
+  - name: 'Self-Hosted-Hub: QA'
+    dependencies:
+      - 'Self-Hosted-Hub: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -2573,349 +2553,352 @@ blocks:
           - checkout && cd self_hosted_hub
           - make build
       jobs:
-        - name: "Test"
+        - name: Test
           commands:
             - make test.setup
             - make test
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-  # Secrethub
-  - name: "Secrethub: Provision Test Image"
+  - name: 'Secrethub: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd secrethub
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Secrethub: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd secrethub
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Secrethub: Deployment Preconditions"
-    dependencies: ["Secrethub: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "SecretHub"
-      prologue:
-        commands:
-          - checkout && cd secrethub
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code CHECK_CODE_OPTS='--ignores Config.HTTPS,Config.CSP'
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker CHECK_DOCKER_OPTS='--skip-files "deps/grpc/Dockerfile,deps/sys2app/Dockerfile"'
-  - name: "Secrethub: QA"
-    dependencies: ["Secrethub: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd secrethub
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Secrethub: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd secrethub
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Secrethub: Deployment Preconditions'
+    dependencies:
+      - 'Secrethub: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: SecretHub
+      prologue:
+        commands:
+          - checkout && cd secrethub
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - 'make check.ex.code CHECK_CODE_OPTS=''--ignores Config.HTTPS,Config.CSP'''
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - 'make check.docker CHECK_DOCKER_OPTS=''--skip-files "deps/grpc/Dockerfile,deps/sys2app/Dockerfile"'''
+  - name: 'Secrethub: QA'
+    dependencies:
+      - 'Secrethub: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd secrethub
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # Notifications
-  - name: "Notifications: Provision Test Image"
+  - name: 'Notifications: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd notifications
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "Notifications: Provision Prod Image"
+  - name: 'Notifications: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd notifications
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Notifications: Deployment Preconditions"
-    dependencies: ["Notifications: Provision Prod Image"]
+  - name: 'Notifications: Deployment Preconditions'
+    dependencies:
+      - 'Notifications: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "Notifications"
+          value: Notifications
       prologue:
         commands:
           - checkout && cd notifications
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Notifications: QA"
-    dependencies: ["Notifications: Provision Test Image"]
+  - name: 'Notifications: QA'
+    dependencies:
+      - 'Notifications: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd notifications
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Notifications Tests"
             - make test.ex
           parallelism: 2
-  # Public-api-v1alpha (plumber-public)
-  - name: "APIv1alpha: Provision Test Image"
+  - name: 'APIv1alpha: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd public-api/v1alpha
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "APIv1alpha: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd public-api/v1alpha
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "APIv1alpha: Deployment Preconditions"
-    dependencies: ["APIv1alpha: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "SecretHub"
-      prologue:
-        commands:
-          - checkout && cd public-api/v1alpha
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "APIv1alpha: QA"
-    dependencies: ["APIv1alpha: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd public-api/v1alpha
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'APIv1alpha: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd public-api/v1alpha
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'APIv1alpha: Deployment Preconditions'
+    dependencies:
+      - 'APIv1alpha: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: SecretHub
+      prologue:
+        commands:
+          - checkout && cd public-api/v1alpha
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'APIv1alpha: QA'
+    dependencies:
+      - 'APIv1alpha: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd public-api/v1alpha
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - make test.ex
-  # APIv2
-  - name: "APIv2: Provision Test Image"
+  - name: 'APIv2: Provision Test Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd public-api/v2
       jobs:
-        - name: "Build test image"
+        - name: Build test image
           commands:
             - make build
             - make push
-  - name: "APIv2: Provision Prod Image"
+  - name: 'APIv2: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd public-api/v2
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "APIv2: Deployment Preconditions"
-    dependencies: ["APIv2: Provision Prod Image"]
+  - name: 'APIv2: Deployment Preconditions'
+    dependencies:
+      - 'APIv2: Provision Prod Image'
     task:
       env_vars:
         - name: MIX_ENV
-          value: "prod"
+          value: prod
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "APIv2"
+          value: APIv2
       prologue:
         commands:
           - checkout && cd public-api/v2
           - sem-version ruby 3.3
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.ex.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.ex.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "APIv2: QA"
-    dependencies: ["APIv2: Provision Test Image"]
+  - name: 'APIv2: QA'
+    dependencies:
+      - 'APIv2: Provision Test Image'
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd public-api/v2
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="APIv2 Tests"
             - make test.ex
           parallelism: 2
-  # Periodic scheduler
-  - name: "Periodic scheduler: Security checks"
+  - name: 'Periodic scheduler: Security checks'
     dependencies: []
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "PeriodicScheduler"
+          value: PeriodicScheduler
       prologue:
         commands:
           - checkout && cd periodic_scheduler/scheduler
@@ -2930,31 +2913,31 @@ blocks:
         - name: Check code
           commands:
             - make check.ex.code
-  - name: "Periodic scheduler: Tests"
+  - name: 'Periodic scheduler: Tests'
     dependencies: []
     task:
       env_vars:
         - name: MIX_ENV
-          value: "test"
+          value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
       prologue:
         commands:
           - checkout && cd periodic_scheduler/scheduler
-          - cache restore periodic_scheduler-$(checksum mix.lock),periodic_scheduler-$SEMAPHORE_GIT_BRANCH,periodic_scheduler
+          - 'cache restore periodic_scheduler-$(checksum mix.lock),periodic_scheduler-$SEMAPHORE_GIT_BRANCH,periodic_scheduler'
           - make build
       epilogue:
         always:
           commands:
-            - cache store periodic_scheduler-$(checksum mix.lock),periodic_scheduler-$SEMAPHORE_GIT_BRANCH,periodic_scheduler deps
+            - 'cache store periodic_scheduler-$(checksum mix.lock),periodic_scheduler-$SEMAPHORE_GIT_BRANCH,periodic_scheduler deps'
       jobs:
-        - name: "Lint code"
+        - name: Lint code
           commands:
             - make lint.ex
-        - name: "Run tests"
+        - name: Run tests
           commands:
             - make test.ex
-  - name: "Test Spec and Definition validator"
+  - name: Test Spec and Definition validator
     dependencies: []
     task:
       jobs:
@@ -2962,98 +2945,98 @@ blocks:
           commands:
             - checkout && cd periodic_scheduler/spec
             - make test USER=root
-        - name: "Definition validator: lint && unit tests"
+        - name: 'Definition validator: lint && unit tests'
           commands:
             - checkout && cd periodic_scheduler/definition_validator
             - make lint-root
             - make unit.test
-  # Github Hooks
-  - name: "Github Hooks: Provision Test Image"
+  - name: 'Github Hooks: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: RAILS_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd github_hooks
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Github Hooks: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: RAILS_ENV
-          value: "production"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd github_hooks
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Github Hooks: Deployment Preconditions"
-    dependencies: ["Github Hooks: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: RAILS_ENV
-          value: "production"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "Github Hooks"
-      prologue:
-        commands:
-          - checkout && cd github_hooks
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ruby.code
-        - name: "Check dependencies"
-          commands:
-            - make check.ruby.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Github Hooks: QA"
-    dependencies: ["Github Hooks: Provision Test Image"]
     task:
       env_vars:
         - name: RAILS_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd github_hooks
+      jobs:
+        - name: Build test image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Github Hooks: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: RAILS_ENV
+          value: production
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd github_hooks
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Github Hooks: Deployment Preconditions'
+    dependencies:
+      - 'Github Hooks: Provision Prod Image'
+    task:
+      env_vars:
+        - name: RAILS_ENV
+          value: production
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: Github Hooks
+      prologue:
+        commands:
+          - checkout && cd github_hooks
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ruby.code
+        - name: Check dependencies
+          commands:
+            - make check.ruby.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Github Hooks: QA'
+    dependencies:
+      - 'Github Hooks: Provision Test Image'
+    task:
+      env_vars:
+        - name: RAILS_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd github_hooks
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ruby
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Monolith Tests"
             - make test.ruby
-  # Statsd
-  - name: "statsd: Provision Prod Image"
+  - name: 'statsd: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -3061,85 +3044,87 @@ blocks:
           - checkout && cd statsd
           - cache restore
       jobs:
-        - name: "Build"
+        - name: Build
           commands:
             - make pull
             - make build
             - make push
-  - name: "statsd: Security Checks"
-    dependencies: ["statsd: Provision Prod Image"]
+  - name: 'statsd: Security Checks'
+    dependencies:
+      - 'statsd: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: SERVICE_NAME
-          value: "Statsd"
+          value: Statsd
       prologue:
         commands:
           - checkout && cd statsd
           - sem-version ruby 2.7
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
-            - export PATH=$PATH:/home/semaphore/.local/bin
+            - 'export PATH=$PATH:/home/semaphore/.local/bin'
             - make check.js.code
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.js.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker CHECK_DOCKER_OPTS='--skip-dirs node_modules'
-  # Velocity
-  - name: "Velocity: Provision Prod Image"
+  - name: 'Velocity: Provision Prod Image'
     dependencies: []
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
         commands:
           - checkout && cd ee/velocity
       jobs:
-        - name: "Build prod image"
+        - name: Build prod image
           commands:
             - make pull
             - make build
             - make push
-  - name: "Velocity: Deployment Preconditions"
-    dependencies: ["Velocity: Provision Prod Image"]
+  - name: 'Velocity: Deployment Preconditions'
+    dependencies:
+      - 'Velocity: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
         - name: SERVICE_NAME
-          value: "Velocity"
+          value: Velocity
       prologue:
         commands:
           - checkout && cd ee/velocity
           - make pull
       jobs:
-        - name: "Check code"
+        - name: Check code
           commands:
             - make check.go.code CHECK_CODE_OPTS='--config-options "-exclude-generated" --ignores G115'
-        - name: "Check dependencies"
+        - name: Check dependencies
           commands:
             - make check.go.deps
-        - name: "Check docker"
+        - name: Check docker
           commands:
             - make build
             - make check.docker
-  - name: "Velocity: QA"
-    dependencies: ["Velocity: Provision Prod Image"]
+  - name: 'Velocity: QA'
+    dependencies:
+      - 'Velocity: Provision Prod Image'
     task:
       env_vars:
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
         - name: APP_ENV
           value: prod
       prologue:
@@ -3147,101 +3132,102 @@ blocks:
           - checkout && cd ee/velocity
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make lint
-        - name: "Test"
+        - name: Test
           commands:
             - make test.setup
             - make test
-  # Zebra
-  - name: "Zebra: Provision Test Image"
+  - name: 'Zebra: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd zebra
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Zebra: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd zebra
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Zebra: Deployment Preconditions"
-    dependencies: ["Zebra: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "Zebra"
-      prologue:
-        commands:
-          - checkout && cd zebra
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code CHECK_CODE_OPTS='--ignores Config.HTTPS,Config.CSP'
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps CHECK_DEPS_OPTS='--ignore-packages phoenix,phoenix_html'
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Zebra: QA"
-    dependencies: ["Zebra: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd zebra
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Zebra: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd zebra
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Zebra: Deployment Preconditions'
+    dependencies:
+      - 'Zebra: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: Zebra
+      prologue:
+        commands:
+          - checkout && cd zebra
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - 'make check.ex.code CHECK_CODE_OPTS=''--ignores Config.HTTPS,Config.CSP'''
+        - name: Check dependencies
+          commands:
+            - 'make check.ex.deps CHECK_DEPS_OPTS=''--ignore-packages phoenix,phoenix_html'''
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Zebra: QA'
+    dependencies:
+      - 'Zebra: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd zebra
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Zebra Tests"
             - make test.ex
-  - name: "Keycloak setup - lint, build"
+  - name: 'Keycloak setup - lint, build'
     dependencies: []
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "Keycloak setup"
+          value: Keycloak setup
         - name: APP_ENV
           value: prod
       prologue:
@@ -3261,12 +3247,12 @@ blocks:
         - name: Build
           commands:
             - make build
-  - name: "Keycloak image - lint, build"
+  - name: 'Keycloak image - lint, build'
     dependencies: []
     task:
       env_vars:
         - name: SERVICE_NAME
-          value: "Keycloak"
+          value: Keycloak
         - name: APP_ENV
           value: prod
       prologue:
@@ -3280,88 +3266,90 @@ blocks:
         - name: Build
           commands:
             - make build
-  - name: "Scouter: Provision Test Image"
+  - name: 'Scouter: Provision Test Image'
     dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "test"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd scouter
-      jobs:
-        - name: "Build test image"
-          commands:
-            - make build
-            - make push
-  - name: "Scouter: Provision Prod Image"
-    dependencies: []
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-      prologue:
-        commands:
-          - checkout && cd scouter
-      jobs:
-        - name: "Build prod image"
-          commands:
-            - make pull
-            - make build
-            - make push
-  - name: "Scouter: Deployment Preconditions"
-    dependencies: ["Scouter: Provision Prod Image"]
-    task:
-      env_vars:
-        - name: MIX_ENV
-          value: "prod"
-        - name: DOCKER_BUILDKIT
-          value: "1"
-        - name: SERVICE_NAME
-          value: "Scouter"
-      prologue:
-        commands:
-          - checkout && cd scouter
-          - make pull
-      jobs:
-        - name: "Check code"
-          commands:
-            - make check.ex.code CHECK_CODE_OPTS='--ignores Config.HTTPS'
-        - name: "Check dependencies"
-          commands:
-            - make check.ex.deps
-        - name: "Check docker"
-          commands:
-            - make build
-            - make check.docker
-  - name: "Scouter: QA"
-    dependencies: ["Scouter: Provision Test Image"]
     task:
       env_vars:
         - name: MIX_ENV
           value: test
         - name: DOCKER_BUILDKIT
-          value: "1"
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd scouter
+      jobs:
+        - name: Build test image
+          commands:
+            - make build
+            - make push
+  - name: 'Scouter: Provision Prod Image'
+    dependencies: []
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+      prologue:
+        commands:
+          - checkout && cd scouter
+      jobs:
+        - name: Build prod image
+          commands:
+            - make pull
+            - make build
+            - make push
+  - name: 'Scouter: Deployment Preconditions'
+    dependencies:
+      - 'Scouter: Provision Prod Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: prod
+        - name: DOCKER_BUILDKIT
+          value: '1'
+        - name: SERVICE_NAME
+          value: Scouter
+      prologue:
+        commands:
+          - checkout && cd scouter
+          - make pull
+      jobs:
+        - name: Check code
+          commands:
+            - make check.ex.code CHECK_CODE_OPTS='--ignores Config.HTTPS'
+        - name: Check dependencies
+          commands:
+            - make check.ex.deps
+        - name: Check docker
+          commands:
+            - make build
+            - make check.docker
+  - name: 'Scouter: QA'
+    dependencies:
+      - 'Scouter: Provision Test Image'
+    task:
+      env_vars:
+        - name: MIX_ENV
+          value: test
+        - name: DOCKER_BUILDKIT
+          value: '1'
       prologue:
         commands:
           - checkout && cd scouter
           - make build
       jobs:
-        - name: "Lint"
+        - name: Lint
           commands:
             - make format.ex
-        - name: "Credo"
+        - name: Credo
           commands:
             - make lint.ex
-        - name: "Test"
+        - name: Test
           commands:
             - export TEST_RESULTS_NAME="Scouter Tests"
             - make test.ex
-  - name: "Feature Provider: QA"
+  - name: 'Feature Provider: QA'
     dependencies: []
     task:
       prologue:
@@ -3374,33 +3362,60 @@ blocks:
         - name: Erlang 23
           env_vars:
             - name: ERLANG_VERSION
-              value: "23"
+              value: '23'
           matrix:
             - env_var: ELIXIR_VERSION
-              values: ["1.10", "1.11", "1.12", "1.13"]
+              values:
+                - '1.10'
+                - '1.11'
+                - '1.12'
+                - '1.13'
           commands:
             - make test
             - cache store
         - name: Erlang 24
           env_vars:
             - name: ERLANG_VERSION
-              value: "24"
+              value: '24'
           matrix:
             - env_var: ELIXIR_VERSION
-              values: ["1.10", "1.11", "1.12", "1.13"]
+              values:
+                - '1.10'
+                - '1.11'
+                - '1.12'
+                - '1.13'
           commands:
             - make test
             - cache store
         - name: Erlang 25
           env_vars:
             - name: ERLANG_VERSION
-              value: "25"
+              value: '25'
           matrix:
             - env_var: ELIXIR_VERSION
-              values: ["1.10", "1.11", "1.12", "1.13", "1.14"]
+              values:
+                - '1.10'
+                - '1.11'
+                - '1.12'
+                - '1.13'
+                - '1.14'
           commands:
             - make test
             - cache store
+after_pipeline:
+  task:
+    jobs:
+      - name: Submit Reports
+        commands:
+          - test-results gen-pipeline-report
+      - name: Process Reports
+        commands:
+          - sem-version ruby 3.3
+          - checkout
+          - 'artifact pull workflow scans -d reports || echo "No scan reports found, skipping."'
+          - mkdir -p out
+          - make check.generate-global-report
+          - 'if [ -f out/global-security-summary.md ]; then artifact push workflow out/global-security-summary.md -d .semaphore/REPORT.md; fi'
 promotions:
   - name: Generate Helm Chart
     pipeline_file: generate-helm-chart.yml
@@ -3491,4 +3506,4 @@ promotions:
             - ce
             - ee
           default_value: ce
-          description: "The edition of Semaphore to install - Community (ce) or Enterprise (ee)."
+          description: The edition of Semaphore to install - Community (ce) or Enterprise (ee).

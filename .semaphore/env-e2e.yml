@@ -1,16 +1,16 @@
 version: v1.0
-name: E2E Tests - ${{parameters.CLOUD_TEST_ENV_PREFIX}} - ${{parameters.CLOUD_TEST_ENVIRONMENT_TYPE}} - ${{parameters.SEMAPHORE_EDITION}}
+name: 'E2E Tests - ${{parameters.CLOUD_TEST_ENV_PREFIX}} - ${{parameters.CLOUD_TEST_ENVIRONMENT_TYPE}} - ${{parameters.SEMAPHORE_EDITION}}'
 agent:
   machine:
     type: f1-standard-2
     os_image: ubuntu2404
 global_job_config:
   secrets:
-    - name: e2e-test-github-app-${{parameters.CLOUD_TEST_ENV_PREFIX}}
-    - name: e2e-test-gitlab-app-${{parameters.CLOUD_TEST_ENV_PREFIX}}
+    - name: 'e2e-test-github-app-${{parameters.CLOUD_TEST_ENV_PREFIX}}'
+    - name: 'e2e-test-gitlab-app-${{parameters.CLOUD_TEST_ENV_PREFIX}}'
   env_vars:
     - name: SEMAPHORE_EDITION
-      value: ${{parameters.SEMAPHORE_EDITION}}
+      value: '${{parameters.SEMAPHORE_EDITION}}'
   prologue:
     commands:
       - checkout && cd e2e
@@ -19,13 +19,7 @@ global_job_config:
   epilogue:
     always:
       commands:
-        - "if [ -f out/results.xml ]; then test-results --name \"${TEST_RESULTS_NAME:-$SEMAPHORE_JOB_NAME}\" publish out/results.xml; fi"
-after_pipeline:
-  task:
-    jobs:
-      - name: Submit Reports
-        commands:
-          - test-results gen-pipeline-report
+        - 'if [ -f out/results.xml ]; then test-results --name "${TEST_RESULTS_NAME:-$SEMAPHORE_JOB_NAME}" publish out/results.xml; fi'
 blocks:
   - name: E2E Tests
     task:
@@ -45,3 +39,9 @@ blocks:
         on_fail:
           commands:
             - artifact push job ./out/screenshots
+after_pipeline:
+  task:
+    jobs:
+      - name: Submit Reports
+        commands:
+          - test-results gen-pipeline-report

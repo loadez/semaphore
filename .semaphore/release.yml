@@ -5,11 +5,11 @@ agent:
     type: f1-standard-2
     os_image: ubuntu2404
 blocks:
-  - name: "Release"
+  - name: Release
     dependencies: []
     task:
       jobs:
-        - name: "Create GitHub release"
+        - name: Create GitHub release
           commands:
             - checkout
             - make cosign.install
